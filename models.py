@@ -1,4 +1,3 @@
-import enum
 from datetime import datetime, timezone
 from sqlalchemy import (
     Column,
@@ -7,7 +6,6 @@ from sqlalchemy import (
     Float,
     Boolean,
     DateTime,
-    Enum,
     ForeignKey,
     Text,
 )
@@ -15,29 +13,40 @@ from sqlalchemy.orm import relationship
 from db import Base
 
 
-class DepartmentEnum(str, enum.Enum):
-    COMMERCIAL = "COMMERCIAL"
-    SUPPORT = "SUPPORT"
-    GESTION = "GESTION"
+class Role(Base):
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(50), unique=True, nullable=False, index=True)
+    description = Column(String(255), nullable=True)
+
+    # Relationship to User
+    users = relationship("User", back_populates="role")
+
+    def __repr__(self):
+        return f"<Role(id={self.id}, name='{self.name}')>"
 
 
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    employee_number = Column(String(50), unique=True, nullable=False, index=True)
     full_name = Column(String(100), nullable=False)
     email = Column(String(150), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
-    department = Column(Enum(DepartmentEnum), nullable=False)
+
+    role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    # Relationships
+    # Relationships with eager loading for role to prevent DetachedInstanceError
+    role = relationship("Role", back_populates="users", foreign_keys=[role_id], lazy="joined")
     clients = relationship("Client", back_populates="commercial_contact", foreign_keys="Client.commercial_contact_id")
     contracts = relationship("Contract", back_populates="commercial_contact", foreign_keys="Contract.commercial_contact_id")
     events = relationship("Event", back_populates="support_contact", foreign_keys="Event.support_contact_id")
 
     def __repr__(self):
-        return f"<User(id={self.id}, full_name='{self.full_name}', department='{self.department.value}')>"
+        return f"<User(id={self.id}, emp_num='{self.employee_number}', name='{self.full_name}')>"
 
 
 class Client(Base):
