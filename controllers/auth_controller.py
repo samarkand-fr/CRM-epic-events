@@ -6,7 +6,7 @@ from security import verify_password, create_access_token, save_session_token, c
 def login_user(identifier: str, password: str) -> tuple[bool, str]:
     """
     Authenticates a user via email or employee number and password.
-    Saves JWT session token on success.
+    Saves persistent JWT session token on success (~/.epic_events_token).
     Returns (success: bool, message: str).
     """
     db = SessionLocal()
@@ -28,7 +28,7 @@ def login_user(identifier: str, password: str) -> tuple[bool, str]:
             role_name=user.role.name if user.role else "UNKNOWN",
         )
         save_session_token(token)
-        return True, f"Bienvenue {user.full_name} ({user.role.name}) !"
+        return True, f"Connexion réussie ! Bienvenue {user.full_name} (Rôle: {user.role.name}). Jeton JWT de session enregistré."
     except Exception as e:
         return False, f"Erreur lors de l'authentification : {e}"
     finally:
@@ -36,6 +36,6 @@ def login_user(identifier: str, password: str) -> tuple[bool, str]:
 
 
 def logout_user() -> bool:
-    """Logs out current user by clearing local session token."""
+    """Logs out current user by deleting persistent session token file."""
     clear_session_token()
     return True

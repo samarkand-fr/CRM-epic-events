@@ -5,19 +5,26 @@ from models import User
 from security import get_session_token, decode_access_token
 
 
-def get_current_user(db_session=None) -> User | None:
-    """Retrieves the currently authenticated user from local token session."""
+def get_current_user(db_session=None) -> tuple[User | None, str | None]:
+    """
+    Retrieves the currently authenticated user from persistent JWT token session.
+    Returns (User, None) on success.
+    Returns (None, "TOKEN_EXPIRED") if token has expired.
+    Returns (None, "NO_TOKEN") if no token is present.
+    """
     token = get_session_token()
     if not token:
-        return None
+        return None, "NO_TOKEN"
 
-    payload = decode_access_token(token)
+    payload, err_code = decode_access_token(token)
+    if err_code == "TOKEN_EXPIRED":
+        return None, "TOKEN_EXPIRED"
     if not payload:
-        return None
+        return None, "TOKEN_INVALID"
 
     user_id = payload.get("user_id")
     if not user_id:
-        return None
+        return None, "TOKEN_INVALID"
 
     close_session = False
     if db_session is None:
@@ -26,7 +33,9 @@ def get_current_user(db_session=None) -> User | None:
 
     try:
         user = db_session.query(User).filter(User.id == user_id).first()
-        return user
+        if not user:
+            return None, "USER_NOT_FOUND"
+        return user, None
     finally:
         if close_session:
             db_session.close()
@@ -39,13 +48,29 @@ def has_role(user: User, *role_names: str) -> bool:
     return user.role.name.upper() in [r.upper() for r in role_names]
 
 
+def check_permission(user: User, allowed_roles: list[str]) -> tuple[bool, str]:
+    """
+    Authorization check function.
+    Returns (has_permission: bool, error_message: str).
+    """
+    if not user:
+        return False, "Aucun utilisateur connecté."
+    if not has_role(user, *allowed_roles):
+        allowed_str = ", ".join(allowed_roles)
+        return False, f"Permission refusée. Rôle requis : [{allowed_str}]. Rôle actuel : [{user.role.name}]."
+    return True, ""
+
+
 def require_login(f):
     """Decorator requiring an authenticated user for CLI commands."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        user = get_current_user()
+        user, err_code = get_current_user()
+        if err_code == "TOKEN_EXPIRED":
+            click.echo(click.style("⏰ Votre session a expiré. Veuillez vous réauthentifier avec 'python epicevents.py login'.", fg="yellow"))
+            raise click.Abort()
         if not user:
-            click.echo(click.style("❌ Erreur : Vous devez être connecté pour exécuter cette commande. Utiliser 'python cli.py login'.", fg="red"))
+            click.echo(click.style("❌ Vous devez être connecté pour exécuter cette commande. Utiliser 'python epicevents.py login'.", fg="red"))
             raise click.Abort()
         return f(*args, **kwargs)
     return decorated_function
@@ -56,13 +81,17 @@ def require_role(*role_names: str):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            user = get_current_user()
-            if not user:
-                click.echo(click.style("❌ Erreur : Vous devez être connecté pour exécuter cette commande.", fg="red"))
+            user, err_code = get_current_user()
+            if err_code == "TOKEN_EXPIRED":
+                click.echo(click.style("⏰ Votre session a expiré. Veuillez vous réauthentifier avec 'python epicevents.py login'.", fg="yellow"))
                 raise click.Abort()
-            if not has_role(user, *role_names):
-                allowed = ", ".join(role_names)
-                click.echo(click.style(f"⛔ Accès refusé : Rôle insuffisant. Rôles autorisés : {allowed}. Votre rôle : {user.role.name}", fg="red"))
+            if not user:
+                click.echo(click.style("❌ Vous devez être connecté pour exécuter cette commande.", fg="red"))
+                raise click.Abort()
+            
+            allowed, msg = check_permission(user, list(role_names))
+            if not allowed:
+                click.echo(click.style(f"⛔ {msg}", fg="red"))
                 raise click.Abort()
             return f(*args, **kwargs)
         return decorated_function

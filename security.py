@@ -1,12 +1,14 @@
 import os
-import json
 import jwt
 from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
+from dotenv import load_dotenv
 
-SECRET_KEY = os.getenv("SECRET_KEY", "EPIC_EVENTS_CRM_SUPER_SECRET_KEY_2026")
+load_dotenv()
+
+SECRET_KEY = os.getenv("SECRET_KEY", "EPIC_EVENTS_CRM_DEFAULT_SECRET_KEY")
 ALGORITHM = "HS256"
-SESSION_FILE_PATH = os.path.expanduser("~/.epic_events_session")
+SESSION_FILE_PATH = os.path.expanduser("~/.epic_events_token")
 
 # Passlib CryptContext using Argon2 as primary scheme, with bcrypt as fallback
 pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
@@ -23,7 +25,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(user_id: int, employee_number: str, role_name: str, expires_delta: timedelta = timedelta(hours=8)) -> str:
-    """Generates a JWT token for the authenticated user."""
+    """Generates a JWT token for the authenticated user with an expiration time."""
     expire = datetime.now(timezone.utc) + expires_delta
     payload = {
         "user_id": user_id,
@@ -34,24 +36,33 @@ def create_access_token(user_id: int, employee_number: str, role_name: str, expi
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def decode_access_token(token: str) -> dict | None:
-    """Decodes and validates a JWT token."""
+def decode_access_token(token: str) -> tuple[dict | None, str | None]:
+    """
+    Decodes and validates a JWT token.
+    Returns (payload, error_code).
+    If token is expired, returns (None, "TOKEN_EXPIRED").
+    If token is invalid, returns (None, "TOKEN_INVALID").
+    """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-        return None
+        return payload, None
+    except jwt.ExpiredSignatureError:
+        clear_session_token()
+        return None, "TOKEN_EXPIRED"
+    except jwt.InvalidTokenError:
+        clear_session_token()
+        return None, "TOKEN_INVALID"
 
 
 def save_session_token(token: str) -> None:
-    """Saves JWT token to local session file with restrictive permissions (0600)."""
+    """Saves JWT token to local session file ~/.epic_events_token with 0600 permissions."""
     with open(SESSION_FILE_PATH, "w") as f:
         f.write(token)
     os.chmod(SESSION_FILE_PATH, 0o600)
 
 
 def get_session_token() -> str | None:
-    """Reads session token from local session file if exists."""
+    """Reads persistent session token from local file if exists."""
     if os.path.exists(SESSION_FILE_PATH):
         try:
             with open(SESSION_FILE_PATH, "r") as f:
@@ -63,7 +74,7 @@ def get_session_token() -> str | None:
 
 
 def clear_session_token() -> None:
-    """Deletes local session token file on logout."""
+    """Deletes persistent session token file on logout or token expiration."""
     if os.path.exists(SESSION_FILE_PATH):
         try:
             os.remove(SESSION_FILE_PATH)
