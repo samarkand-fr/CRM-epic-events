@@ -39,7 +39,7 @@ class User(Base):
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    # Relationships with eager loading for role to prevent DetachedInstanceError
+    # Relationships
     role = relationship("Role", back_populates="users", foreign_keys=[role_id], lazy="joined")
     clients = relationship("Client", back_populates="commercial_contact", foreign_keys="Client.commercial_contact_id")
     contracts = relationship("Contract", back_populates="commercial_contact", foreign_keys="Contract.commercial_contact_id")
@@ -62,8 +62,8 @@ class Client(Base):
 
     commercial_contact_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    # Relationships
-    commercial_contact = relationship("User", back_populates="clients", foreign_keys=[commercial_contact_id])
+    # Relationships (lazy="joined" for detached view safety)
+    commercial_contact = relationship("User", back_populates="clients", foreign_keys=[commercial_contact_id], lazy="joined")
     contracts = relationship("Contract", back_populates="client", cascade="all, delete-orphan")
     events = relationship("Event", back_populates="client", cascade="all, delete-orphan")
 
@@ -82,9 +82,9 @@ class Contract(Base):
     creation_date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     is_signed = Column(Boolean, nullable=False, default=False)
 
-    # Relationships
-    client = relationship("Client", back_populates="contracts", foreign_keys=[client_id])
-    commercial_contact = relationship("User", back_populates="contracts", foreign_keys=[commercial_contact_id])
+    # Relationships (lazy="joined" for detached view safety)
+    client = relationship("Client", back_populates="contracts", foreign_keys=[client_id], lazy="joined")
+    commercial_contact = relationship("User", back_populates="contracts", foreign_keys=[commercial_contact_id], lazy="joined")
     event = relationship("Event", back_populates="contract", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self):
@@ -108,10 +108,10 @@ class Event(Base):
     attendees = Column(Integer, nullable=False, default=0)
     notes = Column(Text, nullable=True)
 
-    # Relationships
-    contract = relationship("Contract", back_populates="event", foreign_keys=[contract_id])
-    client = relationship("Client", back_populates="events", foreign_keys=[client_id])
-    support_contact = relationship("User", back_populates="events", foreign_keys=[support_contact_id])
+    # Relationships (lazy="joined" for detached view safety)
+    contract = relationship("Contract", back_populates="event", foreign_keys=[contract_id], lazy="joined")
+    client = relationship("Client", back_populates="events", foreign_keys=[client_id], lazy="joined")
+    support_contact = relationship("User", back_populates="events", foreign_keys=[support_contact_id], lazy="joined")
 
     def __repr__(self):
         return f"<Event(id={self.id}, title='{self.title}', support_contact_id={self.support_contact_id})>"
