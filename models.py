@@ -62,7 +62,7 @@ class Client(Base):
 
     commercial_contact_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    # Relationships (lazy="joined" for detached view safety)
+    # Relationships
     commercial_contact = relationship("User", back_populates="clients", foreign_keys=[commercial_contact_id], lazy="joined")
     contracts = relationship("Contract", back_populates="client", cascade="all, delete-orphan")
     events = relationship("Event", back_populates="client", cascade="all, delete-orphan")
@@ -82,10 +82,10 @@ class Contract(Base):
     creation_date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     is_signed = Column(Boolean, nullable=False, default=False)
 
-    # Relationships (lazy="joined" for detached view safety)
+    # Relationships (1-to-N: a contract can have multiple events)
     client = relationship("Client", back_populates="contracts", foreign_keys=[client_id], lazy="joined")
     commercial_contact = relationship("User", back_populates="contracts", foreign_keys=[commercial_contact_id], lazy="joined")
-    event = relationship("Event", back_populates="contract", uselist=False, cascade="all, delete-orphan")
+    events = relationship("Event", back_populates="contract", cascade="all, delete-orphan", lazy="joined")
 
     def __repr__(self):
         return f"<Contract(id={self.id}, client_id={self.client_id}, is_signed={self.is_signed}, total_amount={self.total_amount})>"
@@ -96,7 +96,8 @@ class Event(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(200), nullable=False)
-    contract_id = Column(Integer, ForeignKey("contracts.id", ondelete="CASCADE"), unique=True, nullable=False)
+    # Non-unique foreign key allows multiple events per contract (1-to-N)
+    contract_id = Column(Integer, ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False)
     client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
 
     event_date_start = Column(DateTime, nullable=False)
@@ -108,10 +109,10 @@ class Event(Base):
     attendees = Column(Integer, nullable=False, default=0)
     notes = Column(Text, nullable=True)
 
-    # Relationships (lazy="joined" for detached view safety)
-    contract = relationship("Contract", back_populates="event", foreign_keys=[contract_id], lazy="joined")
+    # Relationships
+    contract = relationship("Contract", back_populates="events", foreign_keys=[contract_id], lazy="joined")
     client = relationship("Client", back_populates="events", foreign_keys=[client_id], lazy="joined")
     support_contact = relationship("User", back_populates="events", foreign_keys=[support_contact_id], lazy="joined")
 
     def __repr__(self):
-        return f"<Event(id={self.id}, title='{self.title}', support_contact_id={self.support_contact_id})>"
+        return f"<Event(id={self.id}, title='{self.title}', contract_id={self.contract_id}, support_contact_id={self.support_contact_id})>"

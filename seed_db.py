@@ -123,10 +123,10 @@ def seed_database():
         db.refresh(k2)
         db.refresh(k3)
 
-        # 5. Create Sample Events
+        # 5. Create Sample Events (Note: k1 has 2 events demonstrating 1-to-N relationship!)
         now = datetime.now(timezone.utc)
         e1 = Event(
-            title="Kevin Casey Party",
+            title="Kevin Casey Main Party",
             contract_id=k1.id,
             client_id=c1.id,
             event_date_start=now + timedelta(days=5),
@@ -135,6 +135,17 @@ def seed_database():
             location="10 Rue de Paris, Paris",
             attendees=50,
             notes="Cocktail & DJ",
+        )
+        e4 = Event(
+            title="Kevin Casey After-Party",
+            contract_id=k1.id,  # Same Contract ID k1 (1-to-N)
+            client_id=c1.id,
+            event_date_start=now + timedelta(days=6, hours=2),
+            event_date_end=now + timedelta(days=6, hours=8),
+            support_contact_id=kate.id,
+            location="Le Club Secret, Paris",
+            attendees=30,
+            notes="Late night lounge after-party",
         )
         e2 = Event(
             title="John Ouick Wedding",
@@ -158,10 +169,10 @@ def seed_database():
             attendees=200,
             notes="Assemblée générale des actionnaires (~200 personnes).",
         )
-        db.add_all([e1, e2, e3])
+        db.add_all([e1, e4, e2, e3])
         db.commit()
 
-        print("✅ Database seeding completed with Roles, Users, Clients, Contracts, and Events!")
+        print("✅ Database seeding completed with Roles, Users, Clients, Contracts, and Events (1-to-N)!")
     except Exception as e:
         db.rollback()
         print(f"❌ Error during database seeding: {e}")
