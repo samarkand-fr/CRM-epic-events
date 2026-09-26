@@ -6,7 +6,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "EPIC_EVENTS_CRM_DEFAULT_SECRET_KEY")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY environment variable is not set. Please define it in your .env file.")
+
 ALGORITHM = "HS256"
 SESSION_FILE_PATH = os.path.expanduser("~/.epic_events_token")
 

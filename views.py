@@ -1,5 +1,24 @@
 import click
-from models import Client, Contract, Event
+from models import User, Client, Contract, Event
+
+
+def display_users_view(users: list[User]):
+    """Formats and prints users/collaborators list in terminal."""
+    if not users:
+        click.echo(click.style("ℹ️ Aucun collaborateur trouvé.", fg="yellow"))
+        return
+
+    click.echo(click.style("\n=== LISTE DES COLLABORATEURS ===", fg="cyan", bold=True))
+    header = f"{'ID':<4} | {'N° Employé':<12} | {'Nom Complet':<22} | {'Email':<28} | {'Département':<15}"
+    click.echo(click.style(header, bold=True))
+    click.echo("-" * len(header))
+
+    for u in users:
+        role_name = u.role.name if u.role else "Sans rôle"
+        click.echo(
+            f"{u.id:<4} | {u.employee_number:<12} | {u.full_name:<22} | {u.email:<28} | {role_name:<15}"
+        )
+    click.echo(click.style(f"Total: {len(users)} collaborateur(s)\n", fg="cyan"))
 
 
 def display_clients_view(clients: list[Client]):

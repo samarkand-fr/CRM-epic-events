@@ -1,8 +1,14 @@
+import os
 from datetime import datetime, timedelta, timezone
+from dotenv import load_dotenv
 from db import SessionLocal, engine, Base
 from init_db import init_db
 from models import Role, User, Client, Contract, Event
 from security import hash_password
+
+load_dotenv()
+
+DEFAULT_PASSWORD = os.getenv("DEFAULT_SEED_PASSWORD", "Password123!")
 
 
 def seed_database():
@@ -31,21 +37,21 @@ def seed_database():
                 "employee_number": "EMP001",
                 "full_name": "Bill Boquet",
                 "email": "bill.boquet@epicevents.io",
-                "password": "Password123!",
+                "password": DEFAULT_PASSWORD,
                 "role": role_map["COMMERCIAL"],
             },
             {
                 "employee_number": "EMP002",
                 "full_name": "Kate Hastroff",
                 "email": "kate.hastroff@epicevents.io",
-                "password": "Password123!",
+                "password": DEFAULT_PASSWORD,
                 "role": role_map["SUPPORT"],
             },
             {
                 "employee_number": "EMP003",
                 "full_name": "Admin Gestion",
                 "email": "gestion@epicevents.io",
-                "password": "Password123!",
+                "password": DEFAULT_PASSWORD,
                 "role": role_map["GESTION"],
             },
         ]
@@ -123,7 +129,7 @@ def seed_database():
         db.refresh(k2)
         db.refresh(k3)
 
-        # 5. Create Sample Events (Note: k1 has 2 events demonstrating 1-to-N relationship!)
+        # 5. Create Sample Events
         now = datetime.now(timezone.utc)
         e1 = Event(
             title="Kevin Casey Main Party",
@@ -138,7 +144,7 @@ def seed_database():
         )
         e4 = Event(
             title="Kevin Casey After-Party",
-            contract_id=k1.id,  # Same Contract ID k1 (1-to-N)
+            contract_id=k1.id,
             client_id=c1.id,
             event_date_start=now + timedelta(days=6, hours=2),
             event_date_end=now + timedelta(days=6, hours=8),
@@ -164,7 +170,7 @@ def seed_database():
             client_id=c3.id,
             event_date_start=now + timedelta(days=30),
             event_date_end=now + timedelta(days=30, hours=5),
-            support_contact_id=None,  # No support contact assigned yet!
+            support_contact_id=None,
             location="Salle des fêtes de Mufflins",
             attendees=200,
             notes="Assemblée générale des actionnaires (~200 personnes).",
@@ -172,7 +178,7 @@ def seed_database():
         db.add_all([e1, e4, e2, e3])
         db.commit()
 
-        print("✅ Database seeding completed with Roles, Users, Clients, Contracts, and Events (1-to-N)!")
+        print("✅ Database seeding completed!")
     except Exception as e:
         db.rollback()
         print(f"❌ Error during database seeding: {e}")
