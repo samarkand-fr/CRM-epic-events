@@ -1,4 +1,3 @@
-from datetime import datetime
 import click
 
 from controllers.auth_controller import login_user, logout_user
@@ -7,7 +6,17 @@ from controllers.client_controller import get_all_clients, create_client, update
 from controllers.contract_controller import get_all_contracts, create_contract, update_contract
 from controllers.event_controller import get_all_events, create_event, update_event
 from permissions import get_current_user, require_login, require_role
+from validators import (
+    validate_email,
+    validate_employee_number,
+    validate_date_format,
+    validate_positive_amount,
+)
 from views import (
+    display_success,
+    display_error,
+    display_warning,
+    display_whoami_view,
     display_users_view,
     display_clients_view,
     display_contracts_view,
@@ -17,7 +26,7 @@ from views import (
 
 @click.group()
 def cli():
-    """Epic Events CRM - Application en Ligne de Commande (CLI)"""
+    """Epic Events CRM - Interface en Ligne de Commande (CLI)"""
     pass
 
 
@@ -30,34 +39,34 @@ def cli():
 @click.option("--password", prompt="Mot de passe", hide_input=True, help="Mot de passe du collaborateur")
 def login(identifier, password):
     """Se connecter à la plateforme CRM Epic Events et obtenir un jeton JWT."""
+    if not identifier or not password:
+        display_error("L'identifiant et le mot de passe sont obligatoires.")
+        return
+
     success, message = login_user(identifier, password)
     if success:
-        click.echo(click.style(f"✅ {message}", fg="green"))
+        display_success(message)
     else:
-        click.echo(click.style(f"❌ {message}", fg="red"))
+        display_error(message)
 
 
 @cli.command()
 def logout():
     """Se déconnecter de la plateforme CRM et supprimer le jeton local."""
     logout_user()
-    click.echo(click.style("👋 Déconnexion réussie. Jeton de session supprimé.", fg="blue"))
+    display_success("Déconnexion réussie. Jeton de session supprimé.")
 
 
 @cli.command()
 def whoami():
-    """Afficher le collaborateur actuellement connecté et vérifier le jeton."""
+    """Afficher le collaborateur actuellement connecté et vérifier la session."""
     user, err_code = get_current_user()
     if err_code == "TOKEN_EXPIRED":
-        click.echo(click.style("⏰ Votre session a expiré. Veuillez vous re-connecter avec 'python epicevents.py login'.", fg="yellow"))
+        display_warning("Votre session a expiré. Veuillez vous re-connecter avec 'python epicevents.py login'.")
     elif user:
-        click.echo(click.style("🔑 Session active (Jeton JWT valide) :", fg="green"))
-        click.echo(f"  Employé N° : {user.employee_number}")
-        click.echo(f"  Nom        : {user.full_name}")
-        click.echo(f"  Email      : {user.email}")
-        click.echo(f"  Département: {user.role.name} ({user.role.description})")
+        display_whoami_view(user)
     else:
-        click.echo(click.style("ℹ️ Aucun collaborateur actuellement connecté.", fg="yellow"))
+        display_warning("Aucun collaborateur actuellement connecté.")
 
 
 # ==========================================
@@ -81,12 +90,23 @@ def display_users():
 @require_role("GESTION")
 def cli_create_user(emp_num, full_name, email, password, role):
     """Créer un nouveau collaborateur (Équipe Gestion)."""
+    # Validations des entrées
+    valid_emp, msg_emp = validate_employee_number(emp_num)
+    if not valid_emp:
+        display_error(msg_emp)
+        return
+
+    valid_email, msg_email = validate_email(email)
+    if not valid_email:
+        display_error(msg_email)
+        return
+
     user, _ = get_current_user()
     success, message = create_user(emp_num, full_name, email, password, role, current_user=user)
     if success:
-        click.echo(click.style(f"✅ {message}", fg="green"))
+        display_success(message)
     else:
-        click.echo(click.style(f"❌ {message}", fg="red"))
+        display_error(message)
 
 
 @cli.command(name="update-user")
@@ -98,12 +118,18 @@ def cli_create_user(emp_num, full_name, email, password, role):
 @require_role("GESTION")
 def cli_update_user(user_id, full_name, email, password, role):
     """Modifier un collaborateur existant (Équipe Gestion)."""
+    if email:
+        valid_email, msg_email = validate_email(email)
+        if not valid_email:
+            display_error(msg_email)
+            return
+
     user, _ = get_current_user()
     success, message = update_user(user_id, full_name, email, password, role, current_user=user)
     if success:
-        click.echo(click.style(f"✅ {message}", fg="green"))
+        display_success(message)
     else:
-        click.echo(click.style(f"❌ {message}", fg="red"))
+        display_error(message)
 
 
 # ==========================================
@@ -126,12 +152,17 @@ def display_clients():
 @require_role("COMMERCIAL")
 def cli_create_client(full_name, email, phone, company):
     """Créer un nouveau client (Équipe Commerciale)."""
+    valid_email, msg_email = validate_email(email)
+    if not valid_email:
+        display_error(msg_email)
+        return
+
     user, _ = get_current_user()
     success, message = create_client(full_name, email, phone, company, current_user=user)
     if success:
-        click.echo(click.style(f"✅ {message}", fg="green"))
+        display_success(message)
     else:
-        click.echo(click.style(f"❌ {message}", fg="red"))
+        display_error(message)
 
 
 @cli.command(name="update-client")
@@ -143,12 +174,18 @@ def cli_create_client(full_name, email, phone, company):
 @require_role("COMMERCIAL")
 def cli_update_client(client_id, full_name, email, phone, company):
     """Modifier un client sous sa responsabilité (Équipe Commerciale)."""
+    if email:
+        valid_email, msg_email = validate_email(email)
+        if not valid_email:
+            display_error(msg_email)
+            return
+
     user, _ = get_current_user()
     success, message = update_client(client_id, full_name, email, phone, company, current_user=user)
     if success:
-        click.echo(click.style(f"✅ {message}", fg="green"))
+        display_success(message)
     else:
-        click.echo(click.style(f"❌ {message}", fg="red"))
+        display_error(message)
 
 
 # ==========================================
@@ -182,14 +219,24 @@ def display_contracts(unsigned, unpaid):
 @require_role("GESTION")
 def cli_create_contract(client_id, total_amount, amount_due, signed, commercial_id):
     """Créer un nouveau contrat (Équipe Gestion)."""
+    valid_tot, msg_tot = validate_positive_amount(total_amount, "Le montant total")
+    if not valid_tot:
+        display_error(msg_tot)
+        return
+
+    valid_due, msg_due = validate_positive_amount(amount_due, "Le reste à payer")
+    if not valid_due:
+        display_error(msg_due)
+        return
+
     user, _ = get_current_user()
     success, message = create_contract(
         client_id, total_amount, amount_due, is_signed=signed, commercial_contact_id=commercial_id, current_user=user
     )
     if success:
-        click.echo(click.style(f"✅ {message}", fg="green"))
+        display_success(message)
     else:
-        click.echo(click.style(f"❌ {message}", fg="red"))
+        display_error(message)
 
 
 @cli.command(name="update-contract")
@@ -201,6 +248,18 @@ def cli_create_contract(client_id, total_amount, amount_due, signed, commercial_
 @require_role("GESTION", "COMMERCIAL")
 def cli_update_contract(contract_id, total_amount, amount_due, signed, commercial_id):
     """Modifier un contrat (Équipe Gestion ou Commercial responsable)."""
+    if total_amount is not None:
+        valid_tot, msg_tot = validate_positive_amount(total_amount, "Le montant total")
+        if not valid_tot:
+            display_error(msg_tot)
+            return
+
+    if amount_due is not None:
+        valid_due, msg_due = validate_positive_amount(amount_due, "Le reste à payer")
+        if not valid_due:
+            display_error(msg_due)
+            return
+
     user, _ = get_current_user()
     is_signed_val = True if signed else None
     success, message = update_contract(
@@ -212,9 +271,9 @@ def cli_update_contract(contract_id, total_amount, amount_due, signed, commercia
         current_user=user,
     )
     if success:
-        click.echo(click.style(f"✅ {message}", fg="green"))
+        display_success(message)
     else:
-        click.echo(click.style(f"❌ {message}", fg="red"))
+        display_error(message)
 
 
 # ==========================================
@@ -250,21 +309,28 @@ def display_events(no_support, my_events):
 @require_role("COMMERCIAL")
 def cli_create_event(title, contract_id, start, end, location, attendees, notes):
     """Créer un événement pour un contrat signé (Équipe Commerciale)."""
-    user, _ = get_current_user()
-    try:
-        dt_start = datetime.strptime(start, "%Y-%m-%d %H:%M")
-        dt_end = datetime.strptime(end, "%Y-%m-%d %H:%M")
-    except ValueError:
-        click.echo(click.style("❌ Format de date invalide. Utilisez le format 'YYYY-MM-DD HH:MM'.", fg="red"))
+    valid_start, dt_start, msg_start = validate_date_format(start)
+    if not valid_start:
+        display_error(msg_start)
         return
 
+    valid_end, dt_end, msg_end = validate_date_format(end)
+    if not valid_end:
+        display_error(msg_end)
+        return
+
+    if dt_start >= dt_end:
+        display_error("La date et heure de début doit être strictement antérieure à la date de fin.")
+        return
+
+    user, _ = get_current_user()
     success, message = create_event(
         title, contract_id, dt_start, dt_end, location, attendees=attendees, notes=notes, current_user=user
     )
     if success:
-        click.echo(click.style(f"✅ {message}", fg="green"))
+        display_success(message)
     else:
-        click.echo(click.style(f"❌ {message}", fg="red"))
+        display_error(message)
 
 
 @cli.command(name="update-event")
@@ -279,22 +345,20 @@ def cli_create_event(title, contract_id, start, end, location, attendees, notes)
 @require_role("GESTION", "SUPPORT")
 def cli_update_event(event_id, title, start, end, location, attendees, notes, support_id):
     """Modifier un événement (Support responsable ou Gestion pour désigner le support)."""
-    user, _ = get_current_user()
     dt_start = None
     dt_end = None
     if start:
-        try:
-            dt_start = datetime.strptime(start, "%Y-%m-%d %H:%M")
-        except ValueError:
-            click.echo(click.style("❌ Format de date début invalide (YYYY-MM-DD HH:MM).", fg="red"))
+        valid_start, dt_start, msg_start = validate_date_format(start)
+        if not valid_start:
+            display_error(msg_start)
             return
     if end:
-        try:
-            dt_end = datetime.strptime(end, "%Y-%m-%d %H:%M")
-        except ValueError:
-            click.echo(click.style("❌ Format de date fin invalide (YYYY-MM-DD HH:MM).", fg="red"))
+        valid_end, dt_end, msg_end = validate_date_format(end)
+        if not valid_end:
+            display_error(msg_end)
             return
 
+    user, _ = get_current_user()
     success, message = update_event(
         event_id,
         title=title,
@@ -307,9 +371,9 @@ def cli_update_event(event_id, title, start, end, location, attendees, notes, su
         current_user=user,
     )
     if success:
-        click.echo(click.style(f"✅ {message}", fg="green"))
+        display_success(message)
     else:
-        click.echo(click.style(f"❌ {message}", fg="red"))
+        display_error(message)
 
 
 if __name__ == "__main__":
