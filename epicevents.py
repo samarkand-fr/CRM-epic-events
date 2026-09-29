@@ -1,4 +1,8 @@
 import click
+from logger import init_sentry, log_exception
+
+# Initialize Sentry.io SDK at application launch
+init_sentry()
 
 from controllers.auth_controller import login_user, logout_user
 from controllers.user_controller import get_all_users, create_user, update_user
@@ -24,6 +28,19 @@ from views import (
 )
 
 
+def safe_cli_wrapper(fn):
+    """Global error handler capturing unexpected exceptions and logging them to Sentry.io."""
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except click.Abort:
+            raise
+        except Exception as e:
+            log_exception(e)
+            display_error(f"Une erreur inattendue est survenue : {e}")
+    return wrapper
+
+
 @click.group()
 def cli():
     """Epic Events CRM - Interface en Ligne de Commande (CLI)"""
@@ -39,34 +56,46 @@ def cli():
 @click.option("--password", prompt="Mot de passe", hide_input=True, help="Mot de passe du collaborateur")
 def login(identifier, password):
     """Se connecter à la plateforme CRM Epic Events et obtenir un jeton JWT."""
-    if not identifier or not password:
-        display_error("L'identifiant et le mot de passe sont obligatoires.")
-        return
+    try:
+        if not identifier or not password:
+            display_error("L'identifiant et le mot de passe sont obligatoires.")
+            return
 
-    success, message = login_user(identifier, password)
-    if success:
-        display_success(message)
-    else:
-        display_error(message)
+        success, message = login_user(identifier, password)
+        if success:
+            display_success(message)
+        else:
+            display_error(message)
+    except Exception as e:
+        log_exception(e, extra={"action": "login", "identifier": identifier})
+        display_error(f"Une erreur est survenue lors de la connexion : {e}")
 
 
 @cli.command()
 def logout():
     """Se déconnecter de la plateforme CRM et supprimer le jeton local."""
-    logout_user()
-    display_success("Déconnexion réussie. Jeton de session supprimé.")
+    try:
+        logout_user()
+        display_success("Déconnexion réussie. Jeton de session supprimé.")
+    except Exception as e:
+        log_exception(e, extra={"action": "logout"})
+        display_error(f"Erreur lors de la déconnexion : {e}")
 
 
 @cli.command()
 def whoami():
     """Afficher le collaborateur actuellement connecté et vérifier la session."""
-    user, err_code = get_current_user()
-    if err_code == "TOKEN_EXPIRED":
-        display_warning("Votre session a expiré. Veuillez vous re-connecter avec 'python epicevents.py login'.")
-    elif user:
-        display_whoami_view(user)
-    else:
-        display_warning("Aucun collaborateur actuellement connecté.")
+    try:
+        user, err_code = get_current_user()
+        if err_code == "TOKEN_EXPIRED":
+            display_warning("Votre session a expiré. Veuillez vous re-connecter avec 'python epicevents.py login'.")
+        elif user:
+            display_whoami_view(user)
+        else:
+            display_warning("Aucun collaborateur actuellement connecté.")
+    except Exception as e:
+        log_exception(e, extra={"action": "whoami"})
+        display_error(f"Erreur lors de la vérification de la session : {e}")
 
 
 # ==========================================
@@ -77,8 +106,12 @@ def whoami():
 @require_login
 def display_users():
     """Afficher la liste de tous les collaborateurs."""
-    users = get_all_users()
-    display_users_view(users)
+    try:
+        users = get_all_users()
+        display_users_view(users)
+    except Exception as e:
+        log_exception(e, extra={"action": "display_users"})
+        display_error(f"Erreur lors de la récupération des collaborateurs : {e}")
 
 
 @cli.command(name="create-user")
@@ -90,23 +123,26 @@ def display_users():
 @require_role("GESTION")
 def cli_create_user(emp_num, full_name, email, password, role):
     """Créer un nouveau collaborateur (Équipe Gestion)."""
-    # Validations des entrées
-    valid_emp, msg_emp = validate_employee_number(emp_num)
-    if not valid_emp:
-        display_error(msg_emp)
-        return
+    try:
+        valid_emp, msg_emp = validate_employee_number(emp_num)
+        if not valid_emp:
+            display_error(msg_emp)
+            return
 
-    valid_email, msg_email = validate_email(email)
-    if not valid_email:
-        display_error(msg_email)
-        return
+        valid_email, msg_email = validate_email(email)
+        if not valid_email:
+            display_error(msg_email)
+            return
 
-    user, _ = get_current_user()
-    success, message = create_user(emp_num, full_name, email, password, role, current_user=user)
-    if success:
-        display_success(message)
-    else:
-        display_error(message)
+        user, _ = get_current_user()
+        success, message = create_user(emp_num, full_name, email, password, role, current_user=user)
+        if success:
+            display_success(message)
+        else:
+            display_error(message)
+    except Exception as e:
+        log_exception(e, extra={"action": "create_user", "emp_num": emp_num, "email": email})
+        display_error(f"Une erreur est survenue : {e}")
 
 
 @cli.command(name="update-user")
@@ -118,18 +154,22 @@ def cli_create_user(emp_num, full_name, email, password, role):
 @require_role("GESTION")
 def cli_update_user(user_id, full_name, email, password, role):
     """Modifier un collaborateur existant (Équipe Gestion)."""
-    if email:
-        valid_email, msg_email = validate_email(email)
-        if not valid_email:
-            display_error(msg_email)
-            return
+    try:
+        if email:
+            valid_email, msg_email = validate_email(email)
+            if not valid_email:
+                display_error(msg_email)
+                return
 
-    user, _ = get_current_user()
-    success, message = update_user(user_id, full_name, email, password, role, current_user=user)
-    if success:
-        display_success(message)
-    else:
-        display_error(message)
+        user, _ = get_current_user()
+        success, message = update_user(user_id, full_name, email, password, role, current_user=user)
+        if success:
+            display_success(message)
+        else:
+            display_error(message)
+    except Exception as e:
+        log_exception(e, extra={"action": "update_user", "target_user_id": user_id})
+        display_error(f"Une erreur est survenue : {e}")
 
 
 # ==========================================
@@ -140,8 +180,12 @@ def cli_update_user(user_id, full_name, email, password, role):
 @require_login
 def display_clients():
     """Afficher la liste de tous les clients."""
-    clients = get_all_clients()
-    display_clients_view(clients)
+    try:
+        clients = get_all_clients()
+        display_clients_view(clients)
+    except Exception as e:
+        log_exception(e, extra={"action": "display_clients"})
+        display_error(f"Erreur lors de la récupération des clients : {e}")
 
 
 @cli.command(name="create-client")
@@ -152,17 +196,21 @@ def display_clients():
 @require_role("COMMERCIAL")
 def cli_create_client(full_name, email, phone, company):
     """Créer un nouveau client (Équipe Commerciale)."""
-    valid_email, msg_email = validate_email(email)
-    if not valid_email:
-        display_error(msg_email)
-        return
+    try:
+        valid_email, msg_email = validate_email(email)
+        if not valid_email:
+            display_error(msg_email)
+            return
 
-    user, _ = get_current_user()
-    success, message = create_client(full_name, email, phone, company, current_user=user)
-    if success:
-        display_success(message)
-    else:
-        display_error(message)
+        user, _ = get_current_user()
+        success, message = create_client(full_name, email, phone, company, current_user=user)
+        if success:
+            display_success(message)
+        else:
+            display_error(message)
+    except Exception as e:
+        log_exception(e, extra={"action": "create_client", "email": email})
+        display_error(f"Une erreur est survenue : {e}")
 
 
 @cli.command(name="update-client")
@@ -174,18 +222,22 @@ def cli_create_client(full_name, email, phone, company):
 @require_role("COMMERCIAL")
 def cli_update_client(client_id, full_name, email, phone, company):
     """Modifier un client sous sa responsabilité (Équipe Commerciale)."""
-    if email:
-        valid_email, msg_email = validate_email(email)
-        if not valid_email:
-            display_error(msg_email)
-            return
+    try:
+        if email:
+            valid_email, msg_email = validate_email(email)
+            if not valid_email:
+                display_error(msg_email)
+                return
 
-    user, _ = get_current_user()
-    success, message = update_client(client_id, full_name, email, phone, company, current_user=user)
-    if success:
-        display_success(message)
-    else:
-        display_error(message)
+        user, _ = get_current_user()
+        success, message = update_client(client_id, full_name, email, phone, company, current_user=user)
+        if success:
+            display_success(message)
+        else:
+            display_error(message)
+    except Exception as e:
+        log_exception(e, extra={"action": "update_client", "client_id": client_id})
+        display_error(f"Une erreur est survenue : {e}")
 
 
 # ==========================================
@@ -198,16 +250,20 @@ def cli_update_client(client_id, full_name, email, phone, company):
 @require_login
 def display_contracts(unsigned, unpaid):
     """Afficher la liste des contrats (avec filtres optionnels)."""
-    contracts = get_all_contracts(filter_unsigned=unsigned, filter_unpaid=unpaid)
-    filter_title = ""
-    if unsigned and unpaid:
-        filter_title = "(Non signés & Non entièrement payés)"
-    elif unsigned:
-        filter_title = "(Non signés)"
-    elif unpaid:
-        filter_title = "(Non entièrement payés)"
+    try:
+        contracts = get_all_contracts(filter_unsigned=unsigned, filter_unpaid=unpaid)
+        filter_title = ""
+        if unsigned and unpaid:
+            filter_title = "(Non signés & Non entièrement payés)"
+        elif unsigned:
+            filter_title = "(Non signés)"
+        elif unpaid:
+            filter_title = "(Non entièrement payés)"
 
-    display_contracts_view(contracts, filter_title=filter_title)
+        display_contracts_view(contracts, filter_title=filter_title)
+    except Exception as e:
+        log_exception(e, extra={"action": "display_contracts"})
+        display_error(f"Erreur lors de la récupération des contrats : {e}")
 
 
 @cli.command(name="create-contract")
@@ -219,24 +275,28 @@ def display_contracts(unsigned, unpaid):
 @require_role("GESTION")
 def cli_create_contract(client_id, total_amount, amount_due, signed, commercial_id):
     """Créer un nouveau contrat (Équipe Gestion)."""
-    valid_tot, msg_tot = validate_positive_amount(total_amount, "Le montant total")
-    if not valid_tot:
-        display_error(msg_tot)
-        return
+    try:
+        valid_tot, msg_tot = validate_positive_amount(total_amount, "Le montant total")
+        if not valid_tot:
+            display_error(msg_tot)
+            return
 
-    valid_due, msg_due = validate_positive_amount(amount_due, "Le reste à payer")
-    if not valid_due:
-        display_error(msg_due)
-        return
+        valid_due, msg_due = validate_positive_amount(amount_due, "Le reste à payer")
+        if not valid_due:
+            display_error(msg_due)
+            return
 
-    user, _ = get_current_user()
-    success, message = create_contract(
-        client_id, total_amount, amount_due, is_signed=signed, commercial_contact_id=commercial_id, current_user=user
-    )
-    if success:
-        display_success(message)
-    else:
-        display_error(message)
+        user, _ = get_current_user()
+        success, message = create_contract(
+            client_id, total_amount, amount_due, is_signed=signed, commercial_contact_id=commercial_id, current_user=user
+        )
+        if success:
+            display_success(message)
+        else:
+            display_error(message)
+    except Exception as e:
+        log_exception(e, extra={"action": "create_contract", "client_id": client_id})
+        display_error(f"Une erreur est survenue : {e}")
 
 
 @cli.command(name="update-contract")
@@ -248,32 +308,36 @@ def cli_create_contract(client_id, total_amount, amount_due, signed, commercial_
 @require_role("GESTION", "COMMERCIAL")
 def cli_update_contract(contract_id, total_amount, amount_due, signed, commercial_id):
     """Modifier un contrat (Équipe Gestion ou Commercial responsable)."""
-    if total_amount is not None:
-        valid_tot, msg_tot = validate_positive_amount(total_amount, "Le montant total")
-        if not valid_tot:
-            display_error(msg_tot)
-            return
+    try:
+        if total_amount is not None:
+            valid_tot, msg_tot = validate_positive_amount(total_amount, "Le montant total")
+            if not valid_tot:
+                display_error(msg_tot)
+                return
 
-    if amount_due is not None:
-        valid_due, msg_due = validate_positive_amount(amount_due, "Le reste à payer")
-        if not valid_due:
-            display_error(msg_due)
-            return
+        if amount_due is not None:
+            valid_due, msg_due = validate_positive_amount(amount_due, "Le reste à payer")
+            if not valid_due:
+                display_error(msg_due)
+                return
 
-    user, _ = get_current_user()
-    is_signed_val = True if signed else None
-    success, message = update_contract(
-        contract_id,
-        total_amount=total_amount,
-        amount_due=amount_due,
-        is_signed=is_signed_val,
-        commercial_contact_id=commercial_id,
-        current_user=user,
-    )
-    if success:
-        display_success(message)
-    else:
-        display_error(message)
+        user, _ = get_current_user()
+        is_signed_val = True if signed else None
+        success, message = update_contract(
+            contract_id,
+            total_amount=total_amount,
+            amount_due=amount_due,
+            is_signed=is_signed_val,
+            commercial_contact_id=commercial_id,
+            current_user=user,
+        )
+        if success:
+            display_success(message)
+        else:
+            display_error(message)
+    except Exception as e:
+        log_exception(e, extra={"action": "update_contract", "contract_id": contract_id})
+        display_error(f"Une erreur est survenue : {e}")
 
 
 # ==========================================
@@ -286,16 +350,20 @@ def cli_update_contract(contract_id, total_amount, amount_due, signed, commercia
 @require_login
 def display_events(no_support, my_events):
     """Afficher la liste des événements (avec filtres optionnels)."""
-    user, _ = get_current_user()
-    events = get_all_events(filter_no_support=no_support, filter_my_events=my_events, current_user=user)
+    try:
+        user, _ = get_current_user()
+        events = get_all_events(filter_no_support=no_support, filter_my_events=my_events, current_user=user)
 
-    filter_title = ""
-    if no_support:
-        filter_title = "(Sans support associé)"
-    elif my_events:
-        filter_title = "(Attribués à ma charge)"
+        filter_title = ""
+        if no_support:
+            filter_title = "(Sans support associé)"
+        elif my_events:
+            filter_title = "(Attribués à ma charge)"
 
-    display_events_view(events, filter_title=filter_title)
+        display_events_view(events, filter_title=filter_title)
+    except Exception as e:
+        log_exception(e, extra={"action": "display_events"})
+        display_error(f"Erreur lors de la récupération des événements : {e}")
 
 
 @cli.command(name="create-event")
@@ -309,28 +377,32 @@ def display_events(no_support, my_events):
 @require_role("COMMERCIAL")
 def cli_create_event(title, contract_id, start, end, location, attendees, notes):
     """Créer un événement pour un contrat signé (Équipe Commerciale)."""
-    valid_start, dt_start, msg_start = validate_date_format(start)
-    if not valid_start:
-        display_error(msg_start)
-        return
+    try:
+        valid_start, dt_start, msg_start = validate_date_format(start)
+        if not valid_start:
+            display_error(msg_start)
+            return
 
-    valid_end, dt_end, msg_end = validate_date_format(end)
-    if not valid_end:
-        display_error(msg_end)
-        return
+        valid_end, dt_end, msg_end = validate_date_format(end)
+        if not valid_end:
+            display_error(msg_end)
+            return
 
-    if dt_start >= dt_end:
-        display_error("La date et heure de début doit être strictement antérieure à la date de fin.")
-        return
+        if dt_start >= dt_end:
+            display_error("La date et heure de début doit être strictement antérieure à la date de fin.")
+            return
 
-    user, _ = get_current_user()
-    success, message = create_event(
-        title, contract_id, dt_start, dt_end, location, attendees=attendees, notes=notes, current_user=user
-    )
-    if success:
-        display_success(message)
-    else:
-        display_error(message)
+        user, _ = get_current_user()
+        success, message = create_event(
+            title, contract_id, dt_start, dt_end, location, attendees=attendees, notes=notes, current_user=user
+        )
+        if success:
+            display_success(message)
+        else:
+            display_error(message)
+    except Exception as e:
+        log_exception(e, extra={"action": "create_event", "title": title, "contract_id": contract_id})
+        display_error(f"Une erreur est survenue : {e}")
 
 
 @cli.command(name="update-event")
@@ -345,35 +417,39 @@ def cli_create_event(title, contract_id, start, end, location, attendees, notes)
 @require_role("GESTION", "SUPPORT")
 def cli_update_event(event_id, title, start, end, location, attendees, notes, support_id):
     """Modifier un événement (Support responsable ou Gestion pour désigner le support)."""
-    dt_start = None
-    dt_end = None
-    if start:
-        valid_start, dt_start, msg_start = validate_date_format(start)
-        if not valid_start:
-            display_error(msg_start)
-            return
-    if end:
-        valid_end, dt_end, msg_end = validate_date_format(end)
-        if not valid_end:
-            display_error(msg_end)
-            return
+    try:
+        dt_start = None
+        dt_end = None
+        if start:
+            valid_start, dt_start, msg_start = validate_date_format(start)
+            if not valid_start:
+                display_error(msg_start)
+                return
+        if end:
+            valid_end, dt_end, msg_end = validate_date_format(end)
+            if not valid_end:
+                display_error(msg_end)
+                return
 
-    user, _ = get_current_user()
-    success, message = update_event(
-        event_id,
-        title=title,
-        event_date_start=dt_start,
-        event_date_end=dt_end,
-        location=location,
-        attendees=attendees,
-        notes=notes,
-        support_contact_id=support_id,
-        current_user=user,
-    )
-    if success:
-        display_success(message)
-    else:
-        display_error(message)
+        user, _ = get_current_user()
+        success, message = update_event(
+            event_id,
+            title=title,
+            event_date_start=dt_start,
+            event_date_end=dt_end,
+            location=location,
+            attendees=attendees,
+            notes=notes,
+            support_contact_id=support_id,
+            current_user=user,
+        )
+        if success:
+            display_success(message)
+        else:
+            display_error(message)
+    except Exception as e:
+        log_exception(e, extra={"action": "update_event", "event_id": event_id})
+        display_error(f"Une erreur est survenue : {e}")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from db import SessionLocal
 from models import Contract, Client, User
 from permissions import check_permission, has_role
+from logger import log_event
 
 
 def get_all_contracts(filter_unsigned: bool = False, filter_unpaid: bool = False) -> list[Contract]:
@@ -33,6 +34,7 @@ def create_contract(
     """
     Creates a new contract for a client.
     Restricted to GESTION department.
+    Logs Sentry audit event if the contract is signed at creation.
     """
     allowed, msg = check_permission(current_user, ["GESTION"])
     if not allowed:
@@ -47,7 +49,6 @@ def create_contract(
         if not client:
             return False, f"Client ID #{client_id} introuvable."
 
-        # Assign commercial contact (either provided or inherited from client's assigned commercial)
         comm_id = commercial_contact_id if commercial_contact_id else client.commercial_contact_id
         commercial = db.query(User).filter(User.id == comm_id).first()
         if not commercial:
@@ -63,6 +64,21 @@ def create_contract(
         db.add(new_contract)
         db.commit()
         db.refresh(new_contract)
+
+        # Audit Event Logging to Sentry if contract created as signed
+        if is_signed:
+            log_event(
+                message=f"Signature de contrat : Contrat #{new_contract.id} signé pour le client '{client.full_name}' (Montant: {new_contract.total_amount:.2f}€)",
+                level="info",
+                extra={
+                    "contract_id": new_contract.id,
+                    "client_id": client.id,
+                    "client_name": client.full_name,
+                    "total_amount": new_contract.total_amount,
+                    "author_emp_num": current_user.employee_number if current_user else "System",
+                },
+            )
+
         return True, f"Contrat #{new_contract.id} créé avec succès pour le client '{client.full_name}' (Total: {new_contract.total_amount:.2f}€)."
     except Exception as e:
         db.rollback()
@@ -81,7 +97,8 @@ def update_contract(
 ) -> tuple[bool, str]:
     """
     Updates an existing contract.
-    Restricted to GESTION (all contracts) or COMMERCIAL (contracts of clients they are responsible for).
+    Restricted to GESTION or COMMERCIAL (responsible for the contract).
+    Logs Sentry audit event when contract is signed (is_signed passes to True).
     """
     allowed, msg = check_permission(current_user, ["GESTION", "COMMERCIAL"])
     if not allowed:
@@ -93,10 +110,11 @@ def update_contract(
         if not contract:
             return False, f"Contrat ID #{contract_id} introuvable."
 
-        # Commercial role check: must be the commercial contact responsible for this contract
         if has_role(current_user, "COMMERCIAL") and not has_role(current_user, "GESTION"):
             if contract.commercial_contact_id != current_user.id and contract.client.commercial_contact_id != current_user.id:
                 return False, f"Accès refusé : Vous n'êtes pas le commercial responsable du contrat #{contract.id}."
+
+        was_signed_before = contract.is_signed
 
         if total_amount is not None:
             if total_amount < 0:
@@ -112,7 +130,6 @@ def update_contract(
             contract.is_signed = is_signed
 
         if commercial_contact_id is not None:
-            # Re-assigning commercial contact is restricted to GESTION
             if not has_role(current_user, "GESTION"):
                 return False, "Seule l'équipe de Gestion peut modifier le commercial attribué au contrat."
             comm = db.query(User).filter(User.id == commercial_contact_id).first()
@@ -122,6 +139,21 @@ def update_contract(
 
         db.commit()
         db.refresh(contract)
+
+        # Audit Event Logging to Sentry on Contract Signature
+        if not was_signed_before and contract.is_signed:
+            log_event(
+                message=f"Signature de contrat : Contrat #{contract.id} signé pour le client '{contract.client.full_name}' (Montant: {contract.total_amount:.2f}€)",
+                level="info",
+                extra={
+                    "contract_id": contract.id,
+                    "client_id": contract.client_id,
+                    "client_name": contract.client.full_name,
+                    "total_amount": contract.total_amount,
+                    "author_emp_num": current_user.employee_number if current_user else "System",
+                },
+            )
+
         status_str = "Signé" if contract.is_signed else "Non signé"
         return True, f"Contrat #{contract.id} mis à jour avec succès (Statut: {status_str}, Reste à payer: {contract.amount_due:.2f}€)."
     except Exception as e:
