@@ -160,6 +160,17 @@ def update_event(
     if not allowed:
         return False, msg
 
+    if (
+        title is None
+        and event_date_start is None
+        and event_date_end is None
+        and location is None
+        and attendees is None
+        and notes is None
+        and support_contact_id is None
+    ):
+        return False, "No update parameters provided. Please specify at least one attribute to update (e.g. --location, --notes, --attendees)."
+
     db = SessionLocal()
     try:
         # Step 2: Retrieve Event record

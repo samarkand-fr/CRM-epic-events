@@ -147,6 +147,9 @@ def update_user(
     if not allowed:
         return False, msg
 
+    if full_name is None and email is None and password is None and role_name is None:
+        return False, "No update parameters provided. Please specify at least one attribute to update (e.g. --full-name, --email, --role)."
+
     db = SessionLocal()
     try:
         # Step 2: Fetch target user

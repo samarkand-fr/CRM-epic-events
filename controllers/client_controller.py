@@ -121,6 +121,9 @@ def update_client(
     if not allowed:
         return False, msg
 
+    if full_name is None and email is None and phone is None and company_name is None:
+        return False, "No update parameters provided. Please specify at least one attribute to update (e.g. --full-name, --email, --phone, --company)."
+
     db = SessionLocal()
     try:
         client = db.query(Client).filter(Client.id == client_id).first()

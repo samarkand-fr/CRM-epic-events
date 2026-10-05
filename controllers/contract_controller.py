@@ -153,6 +153,9 @@ def update_contract(
     if not allowed:
         return False, msg
 
+    if total_amount is None and amount_due is None and is_signed is None and commercial_contact_id is None:
+        return False, "No update parameters provided. Please specify at least one attribute to update (e.g. --total-amount, --amount-due, --signed)."
+
     db = SessionLocal()
     try:
         # Step 2: Fetch contract
