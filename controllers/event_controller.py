@@ -1,14 +1,30 @@
+"""
+Event Domain Controller Module (controllers/event_controller.py).
+
+This module handles domain logic for Event scheduling and assignments:
+1. Listing events with support and ownership filters.
+2. Creating events for SIGNED contracts (Restricted to COMMERCIAL department).
+3. Updating event information (Restricted to assigned SUPPORT or GESTION department).
+"""
+
 from datetime import datetime
 from db import SessionLocal
 from models import Event, Contract, User
 from permissions import check_permission, has_role
+from logger import log_exception
 
 
 def get_all_events(filter_no_support: bool = False, filter_my_events: bool = False, current_user=None) -> list[Event]:
     """
-    Retrieves all events with optional filters:
-    - filter_no_support: return events where support_contact_id is None.
-    - filter_my_events: return events assigned to current_user.
+    Retrieves event records with optional query filters.
+
+    Args:
+        filter_no_support (bool): If True, filters events where support_contact_id is None.
+        filter_my_events (bool): If True, filters events assigned to current_user.
+        current_user: Active authenticated user session.
+
+    Returns:
+        list[Event]: List of Event ORM entities.
     """
     db = SessionLocal()
     try:
@@ -34,42 +50,61 @@ def create_event(
     current_user: User = None,
 ) -> tuple[bool, str]:
     """
-    Creates a new event for a signed contract.
-    Restricted to COMMERCIAL department.
-    Commercial must be responsible for the contract/client.
-    Contract MUST be signed (is_signed == True).
+    Creates a new event associated with a SIGNED commercial contract.
+
+    Step 1: Verify permissions (Restricted to COMMERCIAL department).
+    Step 2: Validate mandatory title, location, and date logic (start < end).
+    Step 3: Retrieve contract and verify commercial responsibility ownership.
+    Step 4: CRITICAL BUSINESS RULE: Verify contract signature status (is_signed == True).
+    Step 5: Persist Event record to PostgreSQL database.
+
+    Args:
+        title (str): Title/Name of the event.
+        contract_id (int): ID of associated signed contract.
+        event_date_start (datetime): Event start timestamp.
+        event_date_end (datetime): Event end timestamp.
+        location (str): Physical or virtual venue address.
+        attendees (int): Expected guest count.
+        notes (str | None): Optional organizational details.
+        current_user (User): Authenticated active commercial representative.
+
+    Returns:
+        tuple[bool, str]: (success: bool, message: str).
     """
+    # Step 1: RBAC Permission Verification
     allowed, msg = check_permission(current_user, ["COMMERCIAL"])
     if not allowed:
         return False, msg
 
+    # Step 2: Validate required fields and dates
     if not title or not location:
-        return False, "Le titre et le lieu de l'événement sont obligatoires."
+        return False, "Event title and location are required."
 
     if event_date_start >= event_date_end:
-        return False, "La date de début doit être antérieure à la date de fin."
+        return False, "Start date and time must be prior to end date and time."
 
     db = SessionLocal()
     try:
+        # Step 3: Retrieve contract and check ownership
         contract = db.query(Contract).filter(Contract.id == contract_id).first()
         if not contract:
-            return False, f"Contrat ID #{contract_id} introuvable."
+            return False, f"Contract ID #{contract_id} not found."
 
-        # Check commercial ownership
         if contract.commercial_contact_id != current_user.id and contract.client.commercial_contact_id != current_user.id:
-            return False, f"Accès refusé : Vous n'êtes pas le commercial responsable du contrat #{contract.id}."
+            return False, f"Access denied: You are not the commercial contact responsible for contract #{contract.id}."
 
-        # CRITICAL BUSINESS RULE: Contract MUST be signed!
+        # Step 4: CRITICAL BUSINESS RULE - Contract MUST be signed!
         if not contract.is_signed:
-            return False, f"Impossible de créer un événement : Le contrat #{contract.id} n'est pas encore signé par le client."
+            return False, f"Cannot create event: Contract #{contract.id} has not been signed by the client yet."
 
+        # Step 5: Save Event entity
         new_event = Event(
             title=title,
             contract_id=contract.id,
             client_id=contract.client_id,
             event_date_start=event_date_start,
             event_date_end=event_date_end,
-            support_contact_id=None,  # Initially no support assigned; assigned later by GESTION
+            support_contact_id=None,  # Unassigned initially; GESTION team assigns support later
             location=location,
             attendees=attendees,
             notes=notes,
@@ -77,10 +112,11 @@ def create_event(
         db.add(new_event)
         db.commit()
         db.refresh(new_event)
-        return True, f"Événement '{new_event.title}' (ID #{new_event.id}) créé avec succès pour le contrat #{contract.id}."
+        return True, f"Event '{new_event.title}' (ID #{new_event.id}) created successfully for contract #{contract.id}."
     except Exception as e:
         db.rollback()
-        return False, f"Erreur lors de la création de l'événement : {e}"
+        log_exception(e, extra={"action": "create_event", "contract_id": contract_id})
+        return False, f"Error creating event: {e}"
     finally:
         db.close()
 
@@ -98,62 +134,86 @@ def update_event(
 ) -> tuple[bool, str]:
     """
     Updates an existing event.
-    - GESTION: Can assign/change support_contact_id or update details.
-    - SUPPORT: Can update event details (location, dates, notes, attendees) IF assigned to the event.
+
+    Step 1: Check permissions (Restricted to GESTION or SUPPORT teams).
+    Step 2: Fetch event record from database.
+    Step 3: If user is SUPPORT, verify assignment ownership to this event.
+    Step 4: Update fields and allow GESTION department to assign/change Support contact.
+    Step 5: Commit changes to PostgreSQL database.
+
+    Args:
+        event_id (int): Target event database ID.
+        title (str | None): Optional updated title.
+        event_date_start (datetime | None): Optional updated start timestamp.
+        event_date_end (datetime | None): Optional updated end timestamp.
+        location (str | None): Optional updated location.
+        attendees (int | None): Optional updated attendee count.
+        notes (str | None): Optional updated event notes.
+        support_contact_id (int | None): Optional assigned Support employee ID (GESTION only).
+        current_user (User): Authenticated user session.
+
+    Returns:
+        tuple[bool, str]: (success: bool, message: str).
     """
+    # Step 1: Permission check
     allowed, msg = check_permission(current_user, ["GESTION", "SUPPORT"])
     if not allowed:
         return False, msg
 
     db = SessionLocal()
     try:
+        # Step 2: Retrieve Event record
         event = db.query(Event).filter(Event.id == event_id).first()
         if not event:
-            return False, f"Événement ID #{event_id} introuvable."
+            return False, f"Event ID #{event_id} not found."
 
-        # If user is SUPPORT, check if assigned to this event
+        # Step 3: Check Support user ownership
         if has_role(current_user, "SUPPORT") and not has_role(current_user, "GESTION"):
             if event.support_contact_id != current_user.id:
-                return False, f"Accès refusé : Vous n'êtes pas le collaborateur support responsable de l'événement #{event.id}."
+                return False, f"Access denied: You are not the assigned support contact for event #{event.id}."
             if support_contact_id is not None:
-                return False, "Seule l'équipe de Gestion peut ré-attribuer le contact support d'un événement."
+                return False, "Only GESTION department can re-assign the support contact for an event."
 
+        # Step 4: Apply field updates
         if title:
             event.title = title
         if location:
             event.location = location
         if attendees is not None:
             if attendees < 0:
-                return False, "Le nombre de participants doit être positif ou nul."
+                return False, "Attendee count must be a positive number or zero."
             event.attendees = attendees
         if notes is not None:
             event.notes = notes
 
-        # Dates validation
+        # Date validation check
         new_start = event_date_start if event_date_start else event.event_date_start
         new_end = event_date_end if event_date_end else event.event_date_end
         if new_start >= new_end:
-            return False, "La date de début doit être antérieure à la date de fin."
+            return False, "Start date and time must be prior to end date and time."
         event.event_date_start = new_start
         event.event_date_end = new_end
 
-        # GESTION role assigning support contact
+        # GESTION department assigning support contact
         if support_contact_id is not None:
             if not has_role(current_user, "GESTION"):
-                return False, "Seule l'équipe de Gestion peut désigner le support responsable d'un événement."
+                return False, "Only GESTION department can assign support contacts to events."
             support_user = db.query(User).filter(User.id == support_contact_id).first()
             if not support_user:
-                return False, f"Collaborateur ID #{support_contact_id} introuvable."
+                return False, f"Collaborator ID #{support_contact_id} not found."
             if not has_role(support_user, "SUPPORT"):
-                return False, f"Le collaborateur {support_user.full_name} n'appartient pas au département SUPPORT."
+                return False, f"Collaborator {support_user.full_name} does not belong to the SUPPORT department."
             event.support_contact_id = support_user.id
 
+        # Step 5: Save updates
         db.commit()
         db.refresh(event)
-        support_str = event.support_contact.full_name if event.support_contact else "Non attribué"
-        return True, f"Événement #{event.id} ({event.title}) mis à jour avec succès (Support: {support_str})."
+        support_str = event.support_contact.full_name if event.support_contact else "Unassigned"
+        return True, f"Event #{event.id} ({event.title}) updated successfully (Assigned Support: {support_str})."
     except Exception as e:
         db.rollback()
-        return False, f"Erreur lors de la mise à jour de l'événement : {e}"
+        log_exception(e, extra={"action": "update_event", "event_id": event_id})
+        return False, f"Error updating event: {e}"
     finally:
         db.close()
+

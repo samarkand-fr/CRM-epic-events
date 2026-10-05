@@ -1,3 +1,12 @@
+"""
+Contract Domain Controller Module (controllers/contract_controller.py).
+
+This module manages financial commercial contracts:
+1. Fetching contracts with optional status filters (unsigned, balance due).
+2. Creating new contracts (Restricted to GESTION department; logs Sentry event on signature).
+3. Updating contracts (Restricted to GESTION or responsible COMMERCIAL representative; logs Sentry event on signature).
+"""
+
 from db import SessionLocal
 from models import Contract, Client, User
 from permissions import check_permission, has_role
@@ -6,9 +15,14 @@ from logger import log_event
 
 def get_all_contracts(filter_unsigned: bool = False, filter_unpaid: bool = False) -> list[Contract]:
     """
-    Retrieves all contracts with optional filters:
-    - filter_unsigned: return contracts where is_signed is False.
-    - filter_unpaid: return contracts where amount_due > 0.
+    Retrieves all commercial contracts with optional query filters.
+
+    Args:
+        filter_unsigned (bool): If True, filters contracts where is_signed is False.
+        filter_unpaid (bool): If True, filters contracts with amount_due > 0.
+
+    Returns:
+        list[Contract]: Filtered Contract ORM entities.
     """
     db = SessionLocal()
     try:
@@ -32,28 +46,47 @@ def create_contract(
     current_user: User = None,
 ) -> tuple[bool, str]:
     """
-    Creates a new contract for a client.
-    Restricted to GESTION department.
-    Logs Sentry audit event if the contract is signed at creation.
+    Creates a new commercial contract.
+
+    Step 1: Check permissions (Restricted to GESTION department).
+    Step 2: Validate positive numeric values for total amount and amount due.
+    Step 3: Resolve Client and assigned Commercial representative.
+    Step 4: Save contract record to PostgreSQL DB.
+    Step 5: Log audit event to Sentry.io if contract is signed upon creation.
+
+    Args:
+        client_id (int): Target client database ID.
+        total_amount (float): Total contract price (€).
+        amount_due (float): Outstanding balance due (€).
+        is_signed (bool): Initial signature status.
+        commercial_contact_id (int | None): Optional assigned commercial user ID.
+        current_user (User): Authenticated user session.
+
+    Returns:
+        tuple[bool, str]: (success: bool, message: str).
     """
+    # Step 1: Permission check
     allowed, msg = check_permission(current_user, ["GESTION"])
     if not allowed:
         return False, msg
 
+    # Step 2: Validate amounts
     if total_amount < 0 or amount_due < 0:
-        return False, "Les montants (total et reste à payer) doivent être positifs ou nuls."
+        return False, "Financial amounts (total and balance due) must be positive numbers or zero."
 
     db = SessionLocal()
     try:
+        # Step 3: Resolve Client entity
         client = db.query(Client).filter(Client.id == client_id).first()
         if not client:
-            return False, f"Client ID #{client_id} introuvable."
+            return False, f"Client ID #{client_id} not found."
 
         comm_id = commercial_contact_id if commercial_contact_id else client.commercial_contact_id
         commercial = db.query(User).filter(User.id == comm_id).first()
         if not commercial:
-            return False, f"Contact commercial ID #{comm_id} introuvable."
+            return False, f"Commercial contact ID #{comm_id} not found."
 
+        # Step 4: Create Contract record
         new_contract = Contract(
             client_id=client.id,
             commercial_contact_id=commercial.id,
@@ -65,10 +98,10 @@ def create_contract(
         db.commit()
         db.refresh(new_contract)
 
-        # Audit Event Logging to Sentry if contract created as signed
+        # Step 5: Audit Event Logging to Sentry.io if created as signed
         if is_signed:
             log_event(
-                message=f"Signature de contrat : Contrat #{new_contract.id} signé pour le client '{client.full_name}' (Montant: {new_contract.total_amount:.2f}€)",
+                message=f"Contract Signed: Contract #{new_contract.id} signed for client '{client.full_name}' (Total: {new_contract.total_amount:.2f}€)",
                 level="info",
                 extra={
                     "contract_id": new_contract.id,
@@ -79,10 +112,10 @@ def create_contract(
                 },
             )
 
-        return True, f"Contrat #{new_contract.id} créé avec succès pour le client '{client.full_name}' (Total: {new_contract.total_amount:.2f}€)."
+        return True, f"Contract #{new_contract.id} created successfully for client '{client.full_name}' (Total: {new_contract.total_amount:.2f}€)."
     except Exception as e:
         db.rollback()
-        return False, f"Erreur lors de la création du contrat : {e}"
+        return False, f"Error creating contract: {e}"
     finally:
         db.close()
 
@@ -96,34 +129,53 @@ def update_contract(
     current_user: User = None,
 ) -> tuple[bool, str]:
     """
-    Updates an existing contract.
-    Restricted to GESTION or COMMERCIAL (responsible for the contract).
-    Logs Sentry audit event when contract is signed (is_signed passes to True).
+    Updates an existing commercial contract.
+
+    Step 1: Verify permissions (Allowed: GESTION or responsible COMMERCIAL representative).
+    Step 2: Retrieve target Contract record.
+    Step 3: Track signature transition state (unsigned -> signed).
+    Step 4: Update fields and commit database transaction.
+    Step 5: Trigger Sentry.io audit event if contract signature status changed to signed.
+
+    Args:
+        contract_id (int): Target contract database ID.
+        total_amount (float | None): Optional updated total price.
+        amount_due (float | None): Optional updated balance due.
+        is_signed (bool | None): Optional updated signature state.
+        commercial_contact_id (int | None): Optional re-assigned commercial ID (GESTION only).
+        current_user (User): Authenticated active user session.
+
+    Returns:
+        tuple[bool, str]: (success: bool, message: str).
     """
+    # Step 1: Permission verification
     allowed, msg = check_permission(current_user, ["GESTION", "COMMERCIAL"])
     if not allowed:
         return False, msg
 
     db = SessionLocal()
     try:
+        # Step 2: Fetch contract
         contract = db.query(Contract).filter(Contract.id == contract_id).first()
         if not contract:
-            return False, f"Contrat ID #{contract_id} introuvable."
+            return False, f"Contract ID #{contract_id} not found."
 
+        # Verify commercial ownership restriction
         if has_role(current_user, "COMMERCIAL") and not has_role(current_user, "GESTION"):
             if contract.commercial_contact_id != current_user.id and contract.client.commercial_contact_id != current_user.id:
-                return False, f"Accès refusé : Vous n'êtes pas le commercial responsable du contrat #{contract.id}."
+                return False, f"Access denied: You are not the commercial contact responsible for contract #{contract.id}."
 
+        # Step 3: Track signature status change
         was_signed_before = contract.is_signed
 
         if total_amount is not None:
             if total_amount < 0:
-                return False, "Le montant total doit être positif."
+                return False, "Total contract amount must be a positive number."
             contract.total_amount = total_amount
 
         if amount_due is not None:
             if amount_due < 0:
-                return False, "Le reste à payer doit être positif ou nul."
+                return False, "Amount due must be a positive number or zero."
             contract.amount_due = amount_due
 
         if is_signed is not None:
@@ -131,19 +183,20 @@ def update_contract(
 
         if commercial_contact_id is not None:
             if not has_role(current_user, "GESTION"):
-                return False, "Seule l'équipe de Gestion peut modifier le commercial attribué au contrat."
+                return False, "Only GESTION department can re-assign the commercial contact of a contract."
             comm = db.query(User).filter(User.id == commercial_contact_id).first()
             if not comm:
-                return False, f"Commercial ID #{commercial_contact_id} introuvable."
+                return False, f"Commercial ID #{commercial_contact_id} not found."
             contract.commercial_contact_id = comm.id
 
+        # Step 4: Save updates
         db.commit()
         db.refresh(contract)
 
-        # Audit Event Logging to Sentry on Contract Signature
+        # Step 5: Audit Event Logging to Sentry.io on signature transition
         if not was_signed_before and contract.is_signed:
             log_event(
-                message=f"Signature de contrat : Contrat #{contract.id} signé pour le client '{contract.client.full_name}' (Montant: {contract.total_amount:.2f}€)",
+                message=f"Contract Signed: Contract #{contract.id} signed for client '{contract.client.full_name}' (Total: {contract.total_amount:.2f}€)",
                 level="info",
                 extra={
                     "contract_id": contract.id,
@@ -154,10 +207,11 @@ def update_contract(
                 },
             )
 
-        status_str = "Signé" if contract.is_signed else "Non signé"
-        return True, f"Contrat #{contract.id} mis à jour avec succès (Statut: {status_str}, Reste à payer: {contract.amount_due:.2f}€)."
+        status_str = "Signed" if contract.is_signed else "Unsigned"
+        return True, f"Contract #{contract.id} updated successfully (Status: {status_str}, Balance Due: {contract.amount_due:.2f}€)."
     except Exception as e:
         db.rollback()
-        return False, f"Erreur lors de la mise à jour du contrat : {e}"
+        return False, f"Error updating contract: {e}"
     finally:
         db.close()
+
