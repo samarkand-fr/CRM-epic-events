@@ -6,3 +6,5 @@ __pycache__/
 *.sqlite
 *.db
 .pytest_cache/
+.coverage
+.epic_events_token
