@@ -1,168 +1,115 @@
-# 🏢 Epic Events CRM - Application en Ligne de Commande (CLI)
+# 🏢 Epic Events CRM - Command-Line Application (CLI)
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue.svg)](https://www.postgresql.org/)
 [![SQLAlchemy 2.0](https://img.shields.io/badge/SQLAlchemy-2.0+-green.svg)](https://www.sqlalchemy.org/)
 [![Security Argon2](https://img.shields.io/badge/Security-Argon2-red.svg)](https://passlib.readthedocs.io/)
 [![Sentry.io](https://img.shields.io/badge/Logging-Sentry.io-purple.svg)](https://sentry.io/)
 
-**Epic Events CRM** est une application sécurisée en ligne de commande (CLI) développée en Python pour la gestion de la relation client, des contrats et de l'organisation d'événements.
+**Epic Events CRM** is a secure, production-ready command-line interface (CLI) application developed in Python for managing customer relations, commercial contracts, and event planning operations.
 
-L'application découpe les opérations entre les trois départements de l'entreprise : **Commercial**, **Support** et **Gestion**, en appliquant strictement le **principe du moindre privilège (RBAC)**.
-
----
-
-## 📐 Architecture & Modèle de Données (ERD)
-
-L'application repose sur un schéma PostgreSQL normalisé avec 5 entités :
-
-```mermaid
-erdiagram
-    ROLE {
-        int id PK
-        string name UK "COMMERCIAL | SUPPORT | GESTION"
-        string description
-    }
-
-    USER {
-        int id PK
-        string employee_number UK "ex: EMP001"
-        string full_name
-        string email UK
-        string password_hash "Argon2"
-        int role_id FK "References ROLE(id)"
-        datetime created_at
-    }
-
-    CLIENT {
-        int id PK
-        string full_name
-        string email UK
-        string phone
-        string company_name
-        datetime creation_date
-        datetime last_update
-        int commercial_contact_id FK "References USER(id)"
-    }
-
-    CONTRACT {
-        int id PK
-        int client_id FK "References CLIENT(id)"
-        int commercial_contact_id FK "References USER(id)"
-        float total_amount
-        float amount_due
-        datetime creation_date
-        boolean is_signed
-    }
-
-    EVENT {
-        int id PK
-        string title
-        int contract_id FK "References CONTRACT(id) (1-to-N)"
-        int client_id FK "References CLIENT(id)"
-        datetime event_date_start
-        datetime event_date_end
-        int support_contact_id FK "References USER(id) NULLABLE"
-        string location
-        int attendees
-        text notes
-    }
-
-    ROLE ||--o{ USER : "possède des utilisateurs"
-    USER ||--o{ CLIENT : "est commercial de"
-    USER ||--o{ CONTRACT : "gère contrat"
-    USER ||--o{ EVENT : "supporte événement"
-    CLIENT ||--o{ CONTRACT : "possède"
-    CLIENT ||--o{ EVENT : "organise"
-    CONTRACT ||--o{ EVENT : "donne lieu à (1-à-N)"
-```
+The application strictly enforces **Role-Based Access Control (RBAC)** across three company departments: **Management (Gestion)**, **Commercial (Sales)**, and **Support**, ensuring adherence to the principle of least privilege.
 
 ---
 
-## 🛠️ Stack Technique
+## 📐 Architecture & Database Model (ERD)
 
-- **Langage** : Python 3.9+
-- **SGBD** : PostgreSQL 16
-- **ORM** : SQLAlchemy 2.0+
-- **Interface CLI** : Click 8.x + Rich (tableaux et panneaux colorés)
-- **Authentification & Sécurité** : PyJWT (Tokens de session persistants) + Argon2 (`passlib[argon2]`)
-- **Journalisation & Monitoring** : Sentry.io SDK
-- **Tests & Validation** : Pytest
+The application relies on a normalized PostgreSQL relational database schema with 5 main entities:
+
+![Epic Events CRM Database Schema](docs/class_diagram.png)
+
+### Core Entities & Relationships
+
+1. **ROLE** (`COMMERCIAL`, `SUPPORT`, `GESTION`): Defines user department privileges.
+2. **USER**: Employee account with Argon2 password hash and assigned role.
+3. **CLIENT**: Customer profiles managed by an assigned Commercial representative.
+4. **CONTRACT**: Commercial contracts associated with a Client and Commercial representative.
+5. **EVENT**: Event logistics linked to a **signed** Contract, Client, and an assigned Support representative.
 
 ---
 
-## ⚙️ Procédure d'Installation & Déploiement
+## 🛠️ Technical Stack
 
-### 1. Prérequis
+- **Core Language**: Python 3.10+
+- **Database Engine**: PostgreSQL 16
+- **ORM & Database Toolkit**: SQLAlchemy 2.0+
+- **CLI Interface Framework**: Click 8.x + Rich (Colored tables and formatted panels)
+- **Authentication & Security**: PyJWT (Persistent local session tokens) + Argon2id (`passlib[argon2]`)
+- **Remote Monitoring & Audit Logging**: Sentry.io SDK
+- **Testing & Quality Control**: Pytest + Pytest-Cov
 
-- Python 3.9 ou supérieur
-- PostgreSQL (démarré localement)
-- Git
+---
 
-### 2. Cloner le Dépôt
+## ⚙️ Installation & Setup Guide
+
+### 1. Prerequisites
+
+- Python 3.10 or higher
+- PostgreSQL database engine installed and running
+- Git version control
+
+### 2. Clone the Repository
 
 ```bash
-git clone https://github.com/samarkand-fr/CRM-epic-events
+git clone https://github.com/samarkand-fr/CRM-epic-events.git
 cd epic_events
 ```
 
-### 3. Créer et Activer l'Environnement Virtuel
+### 3. Create and Activate Virtual Environment
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-### 4. Installer les Dépendances
+### 4. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 5. Configurer la Base de Données PostgreSQL
+### 5. PostgreSQL Database Setup
 
-Connectez-vous à PostgreSQL et exécutez la création de l'utilisateur et de la base :
+Log in to your local PostgreSQL instance and create the database user and database:
 
 ```sql
-
 CREATE ROLE epic_crm_user WITH LOGIN PASSWORD 'StrongPassword123!' NOSUPERUSER NOCREATEDB NOCREATEROLE;
 CREATE DATABASE epic_crm_db OWNER epic_crm_user;
 GRANT CONNECT ON DATABASE epic_crm_db TO epic_crm_user;
 GRANT ALL ON SCHEMA public TO epic_crm_user;
 ```
 
-### 6. Configurer les Variables d'Environnement
+### 6. Environment Configuration
 
-Copiez le modèle exemple et renseignez vos informations réelles dans `.env` :
+Copy the template `.env.example` file to `.env`:
 
 ```bash
 cp .env.example .env
 ```
 
-Éditez le fichier `.env` :
+Edit `.env` with your actual configuration credentials:
 
 ```env
-
 DATABASE_URL=postgresql+psycopg2://epic_crm_user:StrongPassword123!@localhost:5432/epic_crm_db
-SECRET_KEY=votre_cle_secrete_jwt_longue_et_aleatoire
-SENTRY_DSN=https://votre_dsn_sentry@sentry.io/project
+SECRET_KEY=your_long_and_secure_random_jwt_secret_key
+SENTRY_DSN=https://your_sentry_dsn_here@ingest.sentry.io/project
 ```
 
-### 7. Initialiser la Base & Insérer les Données de Démonstration
+### 7. Initialize Database & Inject Seed Data
 
-Exécutez le script d'initialisation pour générer le schéma et insérer les comptes de démo :
+Execute the seed initialization script to generate initial tables and populate test users:
 
 ```bash
 python seed_db.py
 ```
 
-*(Ou exécutez le fichier SQL `psql -U epic_crm_user -d epic_crm_db -f schema.sql`)*.
+*(Alternatively, execute the pure SQL schema file: `psql -U epic_crm_user -d epic_crm_db -f schema.sql`)*.
 
 ---
 
-## 🔑 Comptes de Démonstration Générés
+## 🔑 Default Seed Employee Accounts
 
-| Numéro Employé | Nom Complet | Email | Département / Rôle | Mot de passe |
+| Employee N° | Full Name | Pro Email | Department / Role | Default Password |
 | :--- | :--- | :--- | :--- | :--- |
 | `EMP001` | Bill Boquet | `bill.boquet@epicevents.io` | `COMMERCIAL` | `Password123!` |
 | `EMP002` | Kate Hastroff | `kate.hastroff@epicevents.io` | `SUPPORT` | `Password123!` |
@@ -170,93 +117,126 @@ python seed_db.py
 
 ---
 
-## 💻 Guide d'Utilisation des Commandes CLI (`epicevents.py`)
+## 🔒 Role-Based Access Control (RBAC) Permission Matrix
 
-### 1. Authentification & Session
+| Action / Feature | Commercial | Support | Management (Gestion) |
+| :--- | :---: | :---: | :---: |
+| **Authentication & Profile** (`login`, `whoami`, `logout`) | ✅ | ✅ | ✅ |
+| **View Users, Clients, Contracts, Events** | ✅ | ✅ | ✅ |
+| **Create & Update Employee Accounts** | ❌ | ❌ | ✅ |
+| **Create Clients** | ✅ (Auto-assigned) | ❌ | ❌ |
+| **Update Clients** | ✅ (Assigned only) | ❌ | ❌ |
+| **Create Contracts** | ❌ | ❌ | ✅ |
+| **Update Contracts** | ✅ (Assigned only) | ❌ | ✅ (Re-assign Commercial) |
+| **Create Events** | ✅ (On Signed Contract) | ❌ | ❌ |
+| **Update Events** | ❌ | ✅ (Assigned only) | ✅ (Assign Support) |
+
+---
+
+## 💻 CLI Command Usage Guide (`epicevents.py`)
+
+### 1. Authentication Commands
 
 ```bash
-# Se connecter (par email ou par N° d'employé)
-python epicevents.py login --identifier EMP001 --password Password123!
+# Login (via email or employee number)
+python epicevents.py login
 
-# Consulter le profil et la session active
+# View active session & JWT profile
 python epicevents.py whoami
 
-# Se déconnecter
+# Logout (invalidates local session token)
 python epicevents.py logout
 ```
 
-### 2. Lecture des Données (Accessible à tous les collaborateurs authentifiés)
+### 2. Read Commands (All Authenticated Users)
 
 ```bash
-# Liste de tous les collaborateurs
+# List all collaborators
 python epicevents.py display-users
 
-# Liste de tous les clients
+# List all clients
 python epicevents.py display-clients
 
-# Liste des contrats (avec filtres optionnels)
+# List contracts (with optional filters)
 python epicevents.py display-contracts
 python epicevents.py display-contracts --unsigned
 python epicevents.py display-contracts --unpaid
 
-# Liste des événements (avec filtres optionnels)
+# List events (with optional filters)
 python epicevents.py display-events
 python epicevents.py display-events --no-support
 python epicevents.py display-events --my-events
 ```
 
-### 3. Opérations Équipe Gestion (`GESTION`)
+### 3. Management Department Operations (`GESTION`)
 
 ```bash
-# Créer un collaborateur
-python epicevents.py create-user --emp-num EMP004 --full-name "Marc Dupont" --email marc@epicevents.io --password Pass123! --role SUPPORT
+# Create a new employee
+python epicevents.py create-user
 
-# Modifier un collaborateur
+# Update employee details or role
 python epicevents.py update-user --user-id 4 --role GESTION
 
-# Créer un contrat pour un client
-python epicevents.py create-contract --client-id 1 --total-amount 8000.0 --amount-due 4000.0 --unsigned
+# Create a contract for a client
+python epicevents.py create-contract
 
-# Modifier un contrat
+# Update contract status or amounts
 python epicevents.py update-contract --contract-id 3 --signed
 
-# Attribuer un collaborateur Support à un événement
+# Assign a Support employee to an unassigned Event
 python epicevents.py update-event --event-id 4 --support-id 2
 ```
 
-### 4. Opérations Équipe Commerciale (`COMMERCIAL`)
+### 4. Commercial Department Operations (`COMMERCIAL`)
 
 ```bash
-# Créer un client (attribué automatiquement au commercial connecté)
-python epicevents.py create-client --full-name "Alice Martin" --email alice@corp.com --company "Corp SA"
+# Create a new client (auto-assigned to active Commercial user)
+python epicevents.py create-client
 
-# Modifier ses propres clients
-python epicevents.py update-client --client-id 4 --phone "+33600000000"
+# Update assigned client contact information
+python epicevents.py update-client --client-id 1 --phone "+33145889900"
 
-# Créer un événement (Uniquement si le contrat est SIGNÉ)
-python epicevents.py create-event --title "Lancement Produit Alice" --contract-id 1 --start "2026-10-15 10:00" --end "2026-10-15 18:00" --location "Paris Center" --attendees 100
+# Create an Event (CRITICAL: Contract MUST be signed!)
+python epicevents.py create-event
 ```
 
-### 5. Opérations Équipe Support (`SUPPORT`)
+### 5. Support Department Operations (`SUPPORT`)
 
 ```bash
-# Modifier les détails d'un événement sous sa responsabilité
+# Display assigned events
+python epicevents.py display-events --my-events
+
+# Update assigned event details (venue, dates, notes, attendees)
 python epicevents.py update-event --event-id 1 --location "Le Palais des Congrès" --notes "Installation sono à 8h."
 ```
 
 ---
 
-## 🔒 Sécurité et Bonnes Pratiques
+## 🛡️ Security Features & Best Practices
 
-1. **Prévention des Injections SQL** : Utilisation exclusive des requêtes paramétrées via l'ORM SQLAlchemy 2.0.
-2. **Hachage des Mots de Passe** : Mots de passe salés et hachés avec **Argon2** (`passlib[argon2]`). Aucun mot de passe en clair.
-3. **Protection des Jetons de Session** : Le jeton JWT est enregistré sous `~/.epic_events_token` avec des autorisations système `chmod 0600`.
-4. **Contrôle d'Accès Basé sur les Rôles (RBAC)** : Décorateurs d'autorisation `@require_role(...)` et vérification de propriété des entités.
-5. **Gestion des Secrets** : Exclusion de `.env` dans [.gitignore](.gitignore). Seul un modèle non-sensible [.env.example](.env.example) est versionné.
-6. **Journalisation Sentry.io** : Log d'audit émis pour la création/modification d'utilisateurs, la signature de contrats et la capture automatique des exceptions inattendues.
+1. **SQL Injection Prevention**: Exclusive usage of SQLAlchemy 2.0 ORM parameterized queries with prepared statements.
+2. **Password Security**: Argon2id password hashing with dynamic salting. No plaintext passwords in memory or database.
+3. **Session Security**: JWT tokens stored locally at `~/.epic_events_token` with POSIX file permissions `0600` (Owner read/write only).
+4. **RBAC Enforcement**: `@require_role(...)` decorators on Click CLI entrypoints + domain controller validation checks.
+5. **Secret Management**: `.env` excluded from version control via `.gitignore`.
+6. **Remote Audit Logging**: Sentry.io SDK captures unhandled exceptions, failed login attempts, RBAC violations, user management actions, and contract signatures.
 
 ---
 
-## 📄 Licence
+## 🧪 Testing & Code Coverage
 
-Projet développé pour Epic Events CRM. Tous droits réservés.
+Run unit tests and generate code coverage reports with Pytest:
+
+```bash
+# Run test suite
+pytest
+
+# Generate coverage report
+pytest --cov=.
+```
+
+---
+
+## 📄 License
+
+Developed for **Epic Events CRM**. All rights reserved.
