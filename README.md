@@ -73,7 +73,7 @@ pip install -r requirements.txt
 Log in to your local PostgreSQL instance and create the database user and database:
 
 ```sql
-CREATE ROLE epic_crm_user WITH LOGIN PASSWORD 'StrongPassword123!' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+CREATE ROLE epic_crm_user WITH LOGIN PASSWORD '<YOUR_SECURE_PASSWORD>' NOSUPERUSER NOCREATEDB NOCREATEROLE;
 CREATE DATABASE epic_crm_db OWNER epic_crm_user;
 GRANT CONNECT ON DATABASE epic_crm_db TO epic_crm_user;
 GRANT ALL ON SCHEMA public TO epic_crm_user;
