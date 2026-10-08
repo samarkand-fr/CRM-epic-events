@@ -90,7 +90,7 @@ cp .env.example .env
 Edit `.env` with your actual configuration credentials:
 
 ```env
-DATABASE_URL=postgresql+psycopg2://epic_crm_user:StrongPassword123!@localhost:5432/epic_crm_db
+DATABASE_URL=postgresql+psycopg2://epic_crm_user:<your_password>@localhost:5432/epic_crm_db
 SECRET_KEY=your_long_and_secure_random_jwt_secret_key
 SENTRY_DSN=https://your_sentry_dsn_here@ingest.sentry.io/project
 ```
